@@ -147,6 +147,26 @@ A correct Session pooler string has the project ref attached to the username and
 postgresql://postgres.abcdefghijklmnopqrst:yourpassword@aws-0-us-east-1.pooler.supabase.com:5432/postgres
 ```
 
+## Account creation and login
+
+The mobile app now supports creating an account and logging in before you add items to your list. The API issues a session token for each user and validates it on every profile and product request.
+
+Before testing signup or login against an existing Supabase project, apply the account schema migration from the repository root:
+
+```bash
+npx supabase db push
+```
+
+This applies `supabase/migrations/20261016100000_auth_accounts.sql`, which adds the account fields and session table. If the migration has not been applied, the API returns a database setup error instead of creating an account.
+
+1. Start the API and mobile app as described above.
+2. Open the Account tab in the app.
+3. Choose **Create account** and enter a display name, email, and password.
+4. After signup, the app stores the session locally and loads your saved list automatically.
+5. Use **Log in** later with the same email and password to restore your session.
+
+The server uses the existing Supabase `profiles` table plus a lightweight `user_sessions` table for token-based authentication.
+
 ## Database Migrations
 
 Schema changes live in `supabase/migrations/` so everyone's database matches. Link the CLI to the project once:
