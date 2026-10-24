@@ -250,7 +250,12 @@ async function priceForBarcode(locationId: string, barcode: string): Promise<Kro
   const response = await krogerGet(
     `/products/${encodeURIComponent(upc)}?filter.locationId=${encodeURIComponent(locationId)}`
   );
-  if (!response.ok) return { barcode, price: null, promoPrice: null };
+
+  if (response.status == 404) {
+    return {barcode, price: null, promoPrice: null}
+  }
+  
+  //if (!response.ok) return { barcode, price: null, promoPrice: null };
 
   const body = (await response.json()) as {
     data?: {
@@ -275,4 +280,51 @@ export async function pricesForBarcodes(locationId: string, barcodes: string[]) 
     prices.push(...found);
   }
   return prices;
+}
+
+export type KrogerStoreDetails = {
+  name: string;
+  address: {
+    street: string;
+    city: string;
+    state: string;
+    zip: string;
+  }
+}
+
+export async function getKrogerStoreDetails(locationId: string): Promise<KrogerStoreDetails | null> {
+  const response = await krogerGet('/locations/${encodeURIComponent(locationId)}');
+
+  if (response.status == 404) return null;
+  if (!response.ok) {
+    throw new KrogerRequestError("Unable to retrieve Kroger store details.");
+  }
+
+  const payload = (await response.json()) as {
+    data?: {
+      name?: unknown;
+      address?: {
+        addressLine1?: unknown;
+        city?: unknown;
+        state?: unknown;
+        zipCode?: unknown;
+      }
+    }
+  }
+
+  const data = payload.data;
+  if (!data) return null;
+
+  const name = textOrNull(data.name);
+  if (!name) return null;
+
+  return {
+    name,
+    address: {
+      street: textOrNull(data.address?.addressLine1) ?? "",
+      city: textOrNull(data.address?.city) ?? "",
+      state: textOrNull(data.address?.state) ?? "",
+      zip: textOrNull(data.address?.zipCode) ?? "",
+    },
+  }
 }
