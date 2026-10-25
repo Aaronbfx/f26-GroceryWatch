@@ -8,8 +8,18 @@ import {
   pricesForBarcodes,
   searchProducts,
   searchStores,
+  padBarcode,
 } from "./kroger";
 import { trackKrogerPrice } from "./priceHistory";
+import {
+  DEMO_STORE_ID,
+  demoEnabled,
+  isDemoStore,
+  demoStore,
+  demoProducts,
+  demoPrices,
+  demoHistory,
+} from "./seededFallback";
 
 const PLACEHOLDER_USER_ID = "00000000-0000-0000-0000-000000000001";
 const MAX_PRICE = 99_999_999.99;
@@ -176,52 +186,130 @@ function krogerError(err: unknown, reply: { code: (status: number) => { send: (b
 
 app.get("/stores", async (req, reply) => {
   const query = req.query as { zip?: unknown };
-  const zip = typeof query.zip === "string" ? query.zip.trim() : "";
+  const zip =
+    typeof query.zip === "string" ? query.zip.trim() : "";
+
   if (!/^\d{5}$/.test(zip)) {
-    return reply.code(400).send({ error: "A 5-digit zip code is required." });
+    return reply.code(400).send({
+      error: "A 5-digit zip code is required.",
+    });
   }
+
   try {
-    return await searchStores(zip);
-  } catch (err) {
-    app.log.error(err instanceof KrogerRequestError ? err.message : err);
-    return krogerError(err, reply);
+    const stores = await searchStores(zip);
+
+    if (demoEnabled) {
+      const demo = await demoStore();
+      if (demo) stores.push(demo);
+    }
+
+    return stores;
+  } catch (error) {
+    if (
+      demoEnabled &&
+      error instanceof KrogerRequestError &&
+      error.status === 503
+    ) {
+      const demo = await demoStore();
+
+      if (demo) return [demo];
+    }
+
+    app.log.error(error);
+    return krogerError(error, reply);
   }
 });
 
 app.get("/catalog/store-search", async (req, reply) => {
-  const query = req.query as { q?: unknown; locationId?: unknown };
-  const q = typeof query.q === "string" ? query.q.trim() : "";
-  const locationId = typeof query.locationId === "string" ? query.locationId.trim() : "";
+  const query = req.query as {
+    q?: unknown;
+    locationId?: unknown;
+  };
+
+  const q =
+    typeof query.q === "string" ? query.q.trim() : "";
+
+  const locationId =
+    typeof query.locationId === "string"
+      ? query.locationId.trim()
+      : "";
+
   if (!q || !locationId) {
-    return reply.code(400).send({ error: "A search and a store are required." });
+    return reply.code(400).send({
+      error: "A search and a store are required.",
+    });
   }
+
   try {
+    if (isDemoStore(locationId)) {
+      return await demoProducts(q.slice(0, 80), locationId);
+    }
     return await searchProducts(q.slice(0, 80), locationId);
-  } catch (err) {
-    app.log.error(err instanceof KrogerRequestError ? err.message : err);
-    return krogerError(err, reply);
+
+  } catch (error) {
+    if (
+      demoEnabled &&
+      error instanceof KrogerRequestError &&
+      error.status === 503
+    ) {
+      return reply.code(503).send({
+        error: "Kroger is unavailable. Demo data is available.",
+        demoLocationId: DEMO_STORE_ID,
+      });
+    }
+
+    app.log.error(error);
+    return krogerError(error, reply);
   }
 });
 
 app.get("/catalog/prices", async (req, reply) => {
-  const query = req.query as { locationId?: unknown; barcodes?: unknown };
-  const locationId = typeof query.locationId === "string" ? query.locationId.trim() : "";
+  const query = req.query as {
+    locationId?: unknown;
+    barcodes?: unknown;
+  };
+
+  const locationId =
+    typeof query.locationId === "string"
+      ? query.locationId.trim()
+      : "";
+
   const barcodes =
     typeof query.barcodes === "string"
       ? query.barcodes
           .split(",")
           .map((barcode) => barcode.trim())
-          .filter((barcode) => barcode.length > 0)
+          .filter(Boolean)
           .slice(0, 20)
       : [];
+
   if (!locationId || barcodes.length === 0) {
-    return reply.code(400).send({ error: "A store and at least one barcode are required." });
+    return reply.code(400).send({
+      error: "A store and at least one barcode are required.",
+    });
   }
+
   try {
+    if (isDemoStore(locationId)) {
+      return await demoPrices(locationId, barcodes);
+    }
+
     return await pricesForBarcodes(locationId, barcodes);
-  } catch (err) {
-    app.log.error(err instanceof KrogerRequestError ? err.message : err);
-    return krogerError(err, reply);
+
+  } catch (error) {
+    if (
+      demoEnabled &&
+      error instanceof KrogerRequestError &&
+      error.status === 503
+    ) {
+      return reply.code(503).send({
+        error: "Kroger is unavailable. Demo data is available.",
+        demoLocationId: DEMO_STORE_ID,
+      });
+    }
+
+    app.log.error(error);
+    return krogerError(error, reply);
   }
 });
 
@@ -235,7 +323,18 @@ app.post("/catalog/price-history", async (req, reply) => {
   }
 
   try {
-      const result = await trackKrogerPrice({locationId: input.locationId, barcode: input.barcode, name: input.name,});
+      const result = isDemoStore(input.locationId)
+      ? await demoHistory(
+          padBarcode(input.barcode),
+          input.locationId
+        )
+      : await trackKrogerPrice({
+          locationId: input.locationId,
+          barcode: input.barcode,
+          name: input.name,
+        });
+
+
       if (!result) {
         return reply.code(404).send({
           error: "Product or price was not found at this sotre.",
