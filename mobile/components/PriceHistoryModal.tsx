@@ -26,7 +26,7 @@ export type PriceHistoryResponse = {
     trackingStartedAt: string;
     lastCheckedAt: string | null;
     refreshed: boolean;
-    refreshError?: String;
+    refreshError?: string;
     history: Array<{
         id: string;
         price: number;

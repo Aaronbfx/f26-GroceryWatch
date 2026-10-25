@@ -11,6 +11,10 @@ import {
 } from "react-native";
 import { ScreenHeader } from "../components/Chrome";
 import { colors } from "../theme";
+import {
+  PriceHistoryModal,
+  type PriceHistoryResponse,
+} from "../components/PriceHistoryModal"
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL;
 
@@ -64,10 +68,20 @@ export function SearchScreen({ onOpenSettings }: Props) {
   const [addedKeys, setAddedKeys] = useState<Record<string, true>>({});
   const [addingKey, setAddingKey] = useState<string | null>(null);
   const [addError, setAddError] = useState("");
+  const [activeHistory, setActiveHistory] = useState<{
+    productName: string;
+  } | null>(null);
+  const [historyData, setHistoryData] = useState<PriceHistoryResponse | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState("");
 
   const canSearch = query.trim().length > 0 && status !== "loading";
 
   async function onSearch() {
+    setActiveHistory(null);
+    setHistoryData(null);
+    setHistoryError("");
+
     const q = query.trim();
     if (!q || status === "loading") return;
 
@@ -142,6 +156,10 @@ export function SearchScreen({ onOpenSettings }: Props) {
   }
 
   async function onFindStores() {
+    setActiveHistory(null);
+    setHistoryData(null);
+    setHistoryError("");
+
     if (!/^\d{5}$/.test(zip.trim()) || !API_URL || storeStatus === "loading") return;
     setStoreStatus("loading");
     setStoreError("");
@@ -170,6 +188,10 @@ export function SearchScreen({ onOpenSettings }: Props) {
   }
 
   async function onSelectStore(store: KrogerStore) {
+    setActiveHistory(null);
+    setHistoryData(null);
+    setHistoryError("");
+
     if (!API_URL || priceStatus === "loading") return;
     const barcodes = results
       .map((product) => product.barcode)
@@ -220,8 +242,12 @@ export function SearchScreen({ onOpenSettings }: Props) {
 
   function listPrice(quote: KrogerPrice | undefined) {
     if (!quote) return null;
-    if (quote.price !== null) return quote.price;
-    return quote.promoPrice;
+
+    if (quote.promoPrice !== null && ( quote.price === null || quote.promoPrice < quote.price)) {
+      return quote.promoPrice
+    }
+
+    return quote.price
   }
 
   async function onAdd(product: CatalogProduct) {
@@ -249,6 +275,49 @@ export function SearchScreen({ onOpenSettings }: Props) {
       setAddError("API unreachable");
     } finally {
       setAddingKey(null);
+    }
+  }
+
+  async function onHistory(product: CatalogProduct) {
+    if(!API_URL || !selectedStoreId || !product.barcode || historyLoading) { return; }
+
+    const locationId = selectedStoreId;
+
+    setActiveHistory({
+      productName: product.name,
+    });
+
+    setHistoryData(null);
+    setHistoryError("");
+    setHistoryLoading(true);
+
+    try {
+      const response = await fetch(
+        `${API_URL}/catalog/price-history`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            locationId,
+            barcode: product.barcode,
+            name: product.name,
+          })
+        }
+      );
+
+      if (!response.ok) {
+        setHistoryError(await readError(response));
+        return;
+      }
+
+      const data = (await response.json()) as PriceHistoryResponse;
+      setHistoryData(data);
+    } catch {
+      setHistoryError("Could not connect to the price history service");
+    } finally {
+      setHistoryLoading(false);
     }
   }
 
@@ -407,6 +476,24 @@ export function SearchScreen({ onOpenSettings }: Props) {
                   <Text style={styles.promo}>Promo {formatMoney(quote.promoPrice)}</Text>
                 ) : null}
               </View>
+
+              {price !== null && selectedStoreId !== null && product.barcode ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`View price history for ${product.name}`}
+                  disabled={historyLoading}
+                  onPress={() => void onHistory(product)}
+                  style={[
+                    styles.addBtn,
+                    historyLoading && styles.searchBtnDisabled,
+                  ]}
+                >
+                  <Text style={styles.addBtnText}>
+                    History
+                  </Text>
+                </Pressable>
+              ) : null}
+
               {price !== null && selectedStoreId !== null ? (
                 <Pressable
                   accessibilityRole="button"
@@ -424,6 +511,17 @@ export function SearchScreen({ onOpenSettings }: Props) {
           );
         })}
       </ScrollView>
+
+      <PriceHistoryModal
+        visible={activeHistory !== null}
+        productName={activeHistory?.productName ?? ""}
+        data={historyData}
+        loading={historyLoading}
+        error={historyError}
+        onClose={() => {
+          setActiveHistory(null);
+        }}
+      />
     </View>
   );
 }
