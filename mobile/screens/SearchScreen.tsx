@@ -16,7 +16,9 @@ import {
   type PriceHistoryResponse,
 } from "../components/PriceHistoryModal"
 
+
 const API_URL = process.env.EXPO_PUBLIC_API_URL;
+const DEMO_STORE_ID = "GW-DEMO-001";
 
 type CatalogProduct = {
   barcode: string | null;
@@ -48,6 +50,26 @@ async function readError(res: Response) {
   } catch {
   }
   return "Search failed.";
+}
+
+async function getFallbackStoreId(
+  response: Response
+): Promise<string | null> {
+  if (response.status !== 503) {
+    return null;
+  }
+
+  try {
+    const body = (await response.clone().json()) as {
+      demoLocationId?: unknown;
+    };
+
+    return typeof body.demoLocationId === "string"
+      ? body.demoLocationId
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 export function SearchScreen({ onOpenSettings }: Props) {
@@ -126,10 +148,20 @@ export function SearchScreen({ onOpenSettings }: Props) {
     const params = new URLSearchParams({ q: query.trim(), locationId });
     const res = await fetch(`${API_URL}/catalog/store-search?${params.toString()}`);
     if (!res.ok) {
+      const fallbackId = await getFallbackStoreId(res);
+
+      if (fallbackId && fallbackId !== locationId) {
+        setSelectedStoreId(fallbackId);
+        setPriceError("");
+
+        await searchKrogerStore(fallbackId);
+        return;
+      }
+
       setPriceStatus("error");
       setPriceError(await readError(res));
       return;
-    }
+}
     const rows = (await res.json()) as Array<
       CatalogProduct & { price: number | null; promoPrice: number | null }
     >;
@@ -202,9 +234,14 @@ export function SearchScreen({ onOpenSettings }: Props) {
     setPriceStatus("loading");
     setPriceError("");
     try {
+      if (store.locationId === DEMO_STORE_ID) {
+          await searchKrogerStore(store.locationId);
+          return;
+      }
+
       if (barcodes.length === 0) {
-        await searchKrogerStore(store.locationId);
-        return;
+          await searchKrogerStore(store.locationId);
+          return;
       }
       const params = new URLSearchParams({
         locationId: store.locationId,
@@ -212,6 +249,18 @@ export function SearchScreen({ onOpenSettings }: Props) {
       });
       const res = await fetch(`${API_URL}/catalog/prices?${params.toString()}`);
       if (!res.ok) {
+        const fallbackId = await getFallbackStoreId(res);
+
+        if (fallbackId) {
+          setSelectedStoreId(fallbackId);
+          setPrices({});
+          setStoreMatches([]);
+          setPriceError("");
+
+          await searchKrogerStore(fallbackId);
+          return;
+        }
+
         setPriceStatus("error");
         setPriceError(await readError(res));
         return;
@@ -332,13 +381,15 @@ export function SearchScreen({ onOpenSettings }: Props) {
   }
 
   const visibleResults =
-    storeMatches.length > 0
-      ? storeMatches
-      : selectedStoreId !== null && priceStatus === "loading"
-        ? []
-        : storePricesReady
-          ? results.filter(isAtSelectedStore)
-          : results;
+    selectedStoreId === DEMO_STORE_ID
+        ? storeMatches
+        : storeMatches.length > 0
+            ? storeMatches
+            : selectedStoreId !== null && priceStatus === "loading"
+                ? []
+                : storePricesReady
+                    ? results.filter(isAtSelectedStore)
+                    : results;
 
   return (
     <View style={styles.root}>
@@ -438,6 +489,13 @@ export function SearchScreen({ onOpenSettings }: Props) {
               </View>
             )}
             {priceError ? <Text style={styles.errorText}>{priceError}</Text> : null}
+            {selectedStoreId === DEMO_STORE_ID ? (
+              <Text style={styles.hint}>
+                DEMO MODE: These products, prices, and historical
+                observations are simulated and do not represent
+                live Kroger pricing.
+              </Text>
+            ) : null}
           </View>
         )}
 
