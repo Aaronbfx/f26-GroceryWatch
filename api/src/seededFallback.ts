@@ -1,5 +1,7 @@
 import { pool } from "./db";
 
+import "dotenv/config";
+
 import type {
     KrogerPrice,
     KrogerStore,
