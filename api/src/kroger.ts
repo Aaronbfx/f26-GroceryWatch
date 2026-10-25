@@ -11,8 +11,12 @@ export class KrogerNotConfiguredError extends Error {
 }
 
 export class KrogerRequestError extends Error {
-  constructor(message = "Kroger request failed.") {
+  constructor(
+    message = "Kroger request failed.",
+    public readonly status?: number
+  ) {
     super(message);
+    this.name = "KrogerRequestError";
   }
 }
 
@@ -122,7 +126,12 @@ async function accessToken() {
   if (response.status === 401) {
     throw new KrogerRequestError("Kroger rejected the client credentials.");
   }
-  if (!response.ok) throw new KrogerRequestError(`Kroger product search failed (HTTP ${response.status}).`);
+  if (!response.ok) {
+    throw new KrogerRequestError(
+      `Kroger authentication failed (HTTP ${response.status}).`,
+      response.status
+    );
+  }
 
   const data = (await response.json()) as {
     access_token?: unknown;
@@ -170,7 +179,13 @@ export async function searchStores(zip: string): Promise<KrogerStore[]> {
   const response = await krogerGet(
     `/locations?filter.zipCode.near=${encodeURIComponent(zip)}&filter.limit=5`
   );
-  if (!response.ok) throw new KrogerRequestError(`Kroger product search failed (HTTP ${response.status}).`);
+  if (!response.ok) {
+    throw new KrogerRequestError(
+      `Kroger store search failed (HTTP ${response.status}).`,
+      response.status
+    );
+  }
+
   const data = (await response.json()) as {
     data?: Array<{
       locationId?: unknown;
@@ -224,7 +239,13 @@ export async function searchProducts(term: string, locationId: string) {
     "filter.limit": "20",
   });
   const response = await krogerGet(`/products?${params.toString()}`);
-  if (!response.ok) throw new KrogerRequestError();
+
+  if (!response.ok) {
+    throw new KrogerRequestError(
+      `Kroger product search failed (HTTP ${response.status}).`,
+      response.status
+    );
+  }
 
   const data = (await response.json()) as {
     data?: Array<{
@@ -267,7 +288,8 @@ async function priceForBarcode(locationId: string, barcode: string): Promise<Kro
   
   if (!response.ok) {
     throw new KrogerRequestError(
-      `Kroger product lookup failed (HTTP ${response.status}).`
+      `Kroger product lookup failed (HTTP ${response.status}).`,
+      response.status
     );
   }
 
