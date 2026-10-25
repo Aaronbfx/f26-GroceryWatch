@@ -122,7 +122,7 @@ async function accessToken() {
   if (response.status === 401) {
     throw new KrogerRequestError("Kroger rejected the client credentials.");
   }
-  if (!response.ok) throw new KrogerRequestError();
+  if (!response.ok) throw new KrogerRequestError(`Kroger product search failed (HTTP ${response.status}).`);
 
   const data = (await response.json()) as {
     access_token?: unknown;
@@ -170,7 +170,7 @@ export async function searchStores(zip: string): Promise<KrogerStore[]> {
   const response = await krogerGet(
     `/locations?filter.zipCode.near=${encodeURIComponent(zip)}&filter.limit=5`
   );
-  if (!response.ok) throw new KrogerRequestError();
+  if (!response.ok) throw new KrogerRequestError(`Kroger product search failed (HTTP ${response.status}).`);
   const data = (await response.json()) as {
     data?: Array<{
       locationId?: unknown;
@@ -265,7 +265,11 @@ async function priceForBarcode(locationId: string, barcode: string): Promise<Kro
     return {barcode, price: null, promoPrice: null}
   }
   
-  //if (!response.ok) return { barcode, price: null, promoPrice: null };
+  if (!response.ok) {
+    throw new KrogerRequestError(
+      `Kroger product lookup failed (HTTP ${response.status}).`
+    );
+  }
 
   const body = (await response.json()) as {
     data?: {
@@ -293,7 +297,7 @@ export async function pricesForBarcodes(locationId: string, barcodes: string[]) 
 }
 
 export async function getKrogerStoreDetails(locationId: string): Promise<KrogerStoreDetails | null> {
-  const response = await krogerGet('/locations/${encodeURIComponent(locationId)}');
+  const response = await krogerGet(`/locations/${encodeURIComponent(locationId)}`);
 
   if (response.status == 404) return null;
   if (!response.ok) {
