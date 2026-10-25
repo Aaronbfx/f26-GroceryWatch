@@ -130,8 +130,7 @@ export function PriceHistoryModal({visible, productName, data, loading, error, o
     let path = "";
 
     if (hasPoints) {
-        path = `M ${xOf(points[0].timestamp)}` +
-                `${yOf(points[0].price)}`;
+        path = `M ${xOf(points[0].timestamp)} ${yOf(points[0].price)}`;
 
         for (let i = 1; i < points.length; i++) {
             const point = points[i];
@@ -152,7 +151,7 @@ export function PriceHistoryModal({visible, productName, data, loading, error, o
                 <View style={styles.panel}>
                     <ScrollView contentContainerStyle={styles.content}>
 
-                        /* Header */
+                        {/* Header */}
                         <View style = {styles.header}>
                             <View style={{flex: 1}}>
                                 <Text style={styles.title}>
@@ -179,28 +178,27 @@ export function PriceHistoryModal({visible, productName, data, loading, error, o
                             No price history available
                         </Text>):
                         (<>
-                            <View style ={styles.summary}>
-                                <view>
+                            <View style={styles.summary}>
+                                <View>
                                     <Text style={styles.muted}>
                                         Latest in range
                                     </Text>
 
-                                    <Text style = {styles.currentPrice}>
+                                    <Text style={styles.currentPrice}>
                                         {latest ? money(latest.price) : "-"}
                                     </Text>
-                                </view>
+                                </View>
 
-                                <view>
+                                <View>
                                     <Text style={styles.muted}>
                                         Lowest in range
                                     </Text>
 
                                     <Text style={styles.lowestPrice}>
-                                        {lowest !== null ? money(lowest): "-"}
+                                        {lowest !== null ? money(lowest) : "-"}
                                     </Text>
-                                </view>
+                                </View>
                             </View>
-
                             <View style={styles.filters}>
                                 {PERIODS.map((option) => {
                                     const active = option === period;
@@ -273,7 +271,7 @@ export function PriceHistoryModal({visible, productName, data, loading, error, o
                                         stroke={colors.greenDark}
                                         strokeWidth={3}
                                         strokeLinejoin="round"
-                                        fill="non"
+                                        fill="none"
                                     />
 
                                     {points.map((point) =>(

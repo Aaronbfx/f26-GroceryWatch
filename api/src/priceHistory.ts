@@ -98,7 +98,7 @@ export async function trackKrogerPrice(input: {locationId: string; barcode: stri
     const barcode = padBarcode(input.barcode);
     const name = input.name.trim();
 
-    if (!/^[a-zA-Z0-0_-]{1,40}$/.test(locationId) || !/^\d{8,14}$/.test(barcode) || !name || name.length > 250) {
+    if (!/^[a-zA-Z0-9_-]{1,40}$/.test(locationId) || !/^\d{8,14}$/.test(barcode) || !name || name.length > 250) {
         throw new RangeError("A valid Kroger store, barcode, and product name are required.");
     }
 
@@ -117,11 +117,8 @@ export async function trackKrogerPrice(input: {locationId: string; barcode: stri
         throw error;
     }
 
-    const regular = quote?.price != null && quote.price > 0 
-    ? quote.price: null;
-
-    const promo = quote?.promoPrice != null && quote.promoPrice > 0
-    ? quote.promoPrice: null;
+    const regular = quote?.price != null && Number.isFinite(quote.price) && quote.price > 0 ? quote.price : null;
+    const promo = quote?.promoPrice != null && Number.isFinite(quote.promoPrice) && quote.promoPrice > 0 ? quote.promoPrice : null;
 
     const usePromo = promo != null && (regular == null || promo < regular);
 
@@ -140,7 +137,7 @@ export async function trackKrogerPrice(input: {locationId: string; barcode: stri
 
     if (!existing) {
         const registeredStore = await pool.query(`
-            SELECT store_ID
+            SELECT store_id
             FROM public.external_store_refs
             WHERE provider = $1
                 AND external_store_id = $2`,
@@ -163,12 +160,12 @@ export async function trackKrogerPrice(input: {locationId: string; barcode: stri
 
         await client.query(
             "SELECT pg_advisory_xact_lock(hashtext($1))",
-            ['grocerywatch:store:${PROVIDER}:${locationId}']
+            [`grocerywatch:store:${PROVIDER}:${locationId}`]
         );
 
         await client.query(
             "SELECT pg_advisory_xact_lock(hashtext($1))",
-            ['grocerywatch:item:${barcode}']
+            [`grocerywatch:item:${barcode}`]
         );
 
         const found = await client.query<ListingRow>(`
@@ -209,77 +206,81 @@ export async function trackKrogerPrice(input: {locationId: string; barcode: stri
                     if (!storeDetails) {
                         throw new Error("New Kroger store details were unavailable");
                     }
-                }
 
-                const {
-                    name: storeName,
-                    address,
-                } = storeDetails;
+                    const {
+                        name: storeName,
+                        address,
+                    } = storeDetails;
 
-                if (
-                    !address.street ||
-                    !address.city ||
-                    !address.state ||
-                    !address.zip
-                ) { throw new Error("Kroger store addresss was incomplete"); }
+                    if (
+                        !address.street ||
+                        !address.city ||
+                        !address.state ||
+                        !address.zip
+                    ) { throw new Error("Kroger store addresss was incomplete"); }
 
-                const matches = await client.query<{store_id: string;}>(`
-                        SELECT s.store_id
-                        FROM public.stores s
-                        JOIN public.address a
-                            ON s.address_id = a.address_id
-                        WHERE lower(s.name) == lower($1)
-                            AND lower(a.street_address_1) = lower($2)
-                            AND lower(a.city) = lower($3)
-                            AND lower(a.state) = lower($4)
-                            AND a.zip = $5
-                        ORDER BY s.store_id
-                        LIMIT 1`,
-                        [storeName, address.street, address.city, address.state, address.zip]
-                );
+                    const matches = await client.query<{store_id: string;}>(`
+                            SELECT s.store_id
+                            FROM public.stores s
+                            JOIN public.address a
+                                ON s.address_id = a.address_id
+                            WHERE lower(s.name) = lower($1)
+                                AND lower(a.street_address_1) = lower($2)
+                                AND lower(a.city) = lower($3)
+                                AND lower(a.state) = lower($4)
+                                AND a.zip = $5
+                            ORDER BY s.store_id
+                            LIMIT 1`,
+                            [storeName, address.street, address.city, address.state, address.zip]
+                    );
 
-                storeId = matches.rows[0]?.store_id ?? null;
+                    storeId = matches.rows[0]?.store_id ?? null;
 
-                if (!storeId) {
-                    const newAddress = await client.query<{address_id: string;}>(`
-                        INSERT INTO public.address (
-                            street_address_1,
-                            city,
-                            state,
-                            zip
+                    if (!storeId) {
+                        const newAddress = await client.query<{address_id: string;}>(`
+                            INSERT INTO public.address (
+                                street_address_1,
+                                city,
+                                state,
+                                zip
+                            )
+                            VALUES ($1, $2, $3, $4)
+                            RETURNING address_id`,
+                            [address.street, address.city, address.state, address.zip]
+                        );
+
+                        const newStore = await client.query<{store_id: string}>(`
+                            INSERT INTO public.stores (
+                                name,
+                                address_id,
+                                partner_status,
+                                creation_date
+                            )
+                            VALUES ($1, $2, FALSE, NOW())
+                            RETURNING store_id    
+                            `,
+                            [storeName, newAddress.rows[0].address_id]
+                        );
+
+                        storeId = newStore.rows[0].store_id;
+                    }
+
+                     await client.query(`
+                        INSERT INTO public.external_store_refs (
+                            provider,
+                            external_store_id,
+                            store_id
                         )
-                        VALUES ($1, $2, $3, $4)
-                        RETURNING address_id)`,
-                        [address.street, address.city, address.state, address.zip]
+                        VALUES ($1, $2, $3)`,
+                        [PROVIDER, locationId, storeId]
                     );
-
-                    const newStore = await client.query<{store_id: string}>(`
-                        INSERT INTO public.stores (
-                            name,
-                            address_id,
-                            partner_status,
-                            creation_date
-                        )`,
-                        [storeName, newAddress.rows[0].address_id]
-                    );
-
-                    storeId = newStore.rows[0].store_id;
                 }
 
-                await client.query(`
-                    INSERT INTO public.external_store_refs (
-                        provider,
-                        external_store_id,
-                        store_id
-                    )
-                    VALUES ($1, $2, $3)`,
-                    [PROVIDER, locationId, storeId]
-                );
 
                 const matchedItems = await client.query<{item_id: string;}>(`
                     SELECT item_id
                     FROM public.items
-                    WHERE ltrim(upc, '0) = ltrim($1, '0')
+                    WHERE ltrim(upc, '0') = ltrim($1, '0')
                     ORDER BY item_id
                     LIMIT 1`,
                     [barcode]
@@ -294,7 +295,7 @@ export async function trackKrogerPrice(input: {locationId: string; barcode: stri
                             upc,
                             creation_date
                         )
-                        VALUES ($1, %2, NOW())
+                        VALUES ($1, $2, NOW())
                         RETURNING item_id`,
                         [name, barcode]
                     );
@@ -322,7 +323,7 @@ export async function trackKrogerPrice(input: {locationId: string; barcode: stri
                             current_price,
                             last_updated
                         )
-                        VALUES ($1, %2, %3, NOW())
+                        VALUES ($1, $2, $3, NOW())
                         RETURNING inventory_id`,
                         [storeId, itemId, amount]
                     );
@@ -371,7 +372,7 @@ export async function trackKrogerPrice(input: {locationId: string; barcode: stri
             await client.query(`
                 UPDATE public.external_listings
                 SET
-                    last_checked_at NOW(),
+                    last_checked_at = NOW(),
                     last_observed_price = $2,
                     last_price_kind = $3
                 WHERE listing_id = $1`,
@@ -381,7 +382,7 @@ export async function trackKrogerPrice(input: {locationId: string; barcode: stri
             await client.query(`
                 UPDATE public.inventory
                 SET
-                    current_price = %2,
+                    current_price = $2,
                     last_updated = NOW()
                 WHERE inventory_id = $1`,
                 [inventoryId, amount]

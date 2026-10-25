@@ -39,6 +39,16 @@ export type KrogerCatalogItem = {
   promoPrice: number | null;
 };
 
+export type KrogerStoreDetails = {
+  name: string;
+  address: {
+    street: string;
+    city: string;
+    state: string;
+    zip: string;
+  }
+};
+
 type TokenCache = {
   token: string;
   expiresAt: number;
@@ -280,16 +290,6 @@ export async function pricesForBarcodes(locationId: string, barcodes: string[]) 
     prices.push(...found);
   }
   return prices;
-}
-
-export type KrogerStoreDetails = {
-  name: string;
-  address: {
-    street: string;
-    city: string;
-    state: string;
-    zip: string;
-  }
 }
 
 export async function getKrogerStoreDetails(locationId: string): Promise<KrogerStoreDetails | null> {
