@@ -9,6 +9,7 @@ import {
   searchProducts,
   searchStores,
 } from "./kroger";
+import { trackKrogerPrice } from "./priceHistory";
 
 const PLACEHOLDER_USER_ID = "00000000-0000-0000-0000-000000000001";
 const MAX_PRICE = 99_999_999.99;
@@ -222,6 +223,43 @@ app.get("/catalog/prices", async (req, reply) => {
     app.log.error(err instanceof KrogerRequestError ? err.message : err);
     return krogerError(err, reply);
   }
+});
+
+app.post("/catalog/price-history", async (req, reply) => {
+  const input = req.body as Record<string, unknown> | null;
+
+  if (!input || typeof input.locationId !== "string" || typeof input.barcode !== "string" || typeof input.name !== "string") {
+    return reply.code(400).send({
+      error: "Store, barcode, and name are required"
+    });
+  }
+
+  try {
+      const result = await trackKrogerPrice({locationId: input.locationId, barcode: input.barcode, name: input.name,});
+      if (!result) {
+        return reply.code(404).send({
+          error: "Product or price was not found at this sotre.",
+        });
+      }
+
+      return result;
+    } catch (error) {
+      if (error instanceof RangeError) {
+        return reply.code(400).send({
+          error: error.message,
+        });
+      }
+
+      app.log.error(error);
+
+      if (error instanceof KrogerNotConfiguredError || error instanceof KrogerRequestError) {
+        return krogerError(error, reply);
+      }
+
+      return reply.code(500).send({
+        error: "Could not retrieve price history.",
+      });
+    }
 });
 
 app.get("/health", async (_req, reply) => {
