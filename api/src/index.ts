@@ -33,6 +33,7 @@ import {
   demoHistory,
 } from "./seededFallback";
 
+
 const PLACEHOLDER_USER_ID = "00000000-0000-0000-0000-000000000001";
 const MAX_PRICE = 99_999_999.99;
 const DEMO_ZIP = "00000";
@@ -66,6 +67,8 @@ type ProductInput = {
   price: number;
   location: string;
   quantity: number | null;
+  barcode: string | null;
+  externalStoreId: string | null;
 };
 
 type ProductRow = {
@@ -75,8 +78,12 @@ type ProductRow = {
   price: string;
   location: string;
   quantity: number | null;
+  barcode: string | null;
+  external_store_id: string | null;
   created_at: Date;
 };
+
+
 
 function parseProductBody(body: unknown): string | ProductInput {
   if (!body || typeof body !== "object") {
@@ -120,11 +127,38 @@ function parseProductBody(body: unknown): string | ProductInput {
     quantity = parsed;
   }
 
+  const barcode =
+    typeof raw.barcode === "string"
+      ? raw.barcode.trim() || null
+      : null;
+
+  const externalStoreId =
+    typeof raw.externalStoreId === "string"
+      ? raw.externalStoreId.trim() || null
+      : null;
+
+  if ((barcode === null) !== (externalStoreId === null)) {
+    return "Barcode and store ID must be provided together.";
+  }
+
+  if (barcode !== null && !/^\d{8,14}$/.test(barcode)) {
+    return "Invalid barcode.";
+  }
+
+  if (
+    externalStoreId !== null &&
+    !/^[a-zA-Z0-9_-]{1,40}$/.test(externalStoreId)
+  ) {
+    return "Invalid store ID.";
+  }
+
   return {
     name,
     price: Math.round(price * 100) / 100,
     location,
     quantity,
+    barcode,
+    externalStoreId,
   };
 }
 
@@ -136,6 +170,8 @@ function toProduct(row: ProductRow) {
     price: Number(row.price),
     location: row.location,
     quantity: row.quantity,
+    barcode: row.barcode,
+    external_store_id: row.external_store_id,
     created_at: row.created_at,
   };
 }
@@ -145,7 +181,11 @@ async function getSessionUserId(req: { headers: Record<string, string | string[]
   const token = typeof authorization === "string" ? parseBearerToken(authorization) : null;
 
   if (!token) {
-    return { userId: PLACEHOLDER_USER_ID, isAuthenticated: false };
+    reply.code(401).send({
+      error: "Authentication is required to manage your list."
+    });
+
+    return null;
   }
 
   try {
@@ -599,10 +639,19 @@ app.get("/products", async (req, reply) => {
 
   try {
     const result = await pool.query<ProductRow>(
-      `select id, user_id, name, price, location, quantity, created_at
-       from spotted_products
-       where user_id = $1
-       order by created_at desc`,
+      `SELECT
+          id,
+          user_id,
+          name,
+          price,
+          location,
+          quantity,
+          barcode,
+          external_store_id,
+          created_at
+      FROM public.spotted_products
+      WHERE user_id = $1
+      ORDER BY created_at DESC`,
       [session.userId]
     );
     return result.rows.map(toProduct);
@@ -623,15 +672,25 @@ app.post("/products", async (req, reply) => {
 
   try {
     const result = await pool.query<ProductRow>(
-      `insert into spotted_products (user_id, name, price, location, quantity)
-       values ($1, $2, $3, $4, $5)
-       returning id, user_id, name, price, location, quantity, created_at`,
+      `INSERT INTO public.spotted_products (
+          user_id,
+          name,
+          price,
+          location,
+          quantity,
+          barcode,
+          external_store_id
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      RETURNING *`,
       [
         session.userId,
         parsed.name,
         parsed.price,
         parsed.location,
         parsed.quantity,
+        parsed.barcode,
+        parsed.externalStoreId,
       ]
     );
     const saved = result.rows[0];

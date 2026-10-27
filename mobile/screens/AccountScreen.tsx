@@ -10,6 +10,10 @@ import {
 } from "react-native";
 import { ScreenHeader } from "../components/Chrome";
 import { colors, layout } from "../theme";
+import {
+  PriceHistoryModal,
+  type PriceHistoryResponse,
+} from "../components/PriceHistoryModal";
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL;
 const SESSION_KEY = "grocerywatch-session";
@@ -32,6 +36,8 @@ type SpottedProduct = {
   price: number;
   location: string;
   quantity: number | null;
+  barcode: string | null;
+  external_store_id: string | null;
 };
 
 function formatMoney(value: number) {
@@ -121,6 +127,10 @@ export function AccountScreen() {
   const [password, setPassword] = useState("");
   const [saving, setSaving] = useState(false);
   const [removingId, setRemovingId] = useState<string | null>(null);
+  const [activeHistory, setActiveHistory] = useState<SpottedProduct | null>(null);
+  const [historyData, setHistoryData] = useState<PriceHistoryResponse | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState("");
 
   const clearSession = useCallback(() => {
     writeSession(null);
@@ -277,6 +287,55 @@ export function AccountScreen() {
       setFormError("API unreachable");
     } finally {
       setRemovingId(null);
+    }
+  }
+
+  async function onHistory(product: SpottedProduct) {
+    if (
+      !API_URL ||
+      !product.barcode ||
+      !product.external_store_id ||
+      historyLoading
+    ) {
+      return;
+    }
+
+    setActiveHistory(product);
+    setHistoryData(null);
+    setHistoryError("");
+    setHistoryLoading(true);
+
+    try {
+      const response = await fetch(
+        `${API_URL}/catalog/price-history`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            locationId: product.external_store_id,
+            barcode: product.barcode,
+            name: product.name,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        setHistoryError(await readError(response));
+        return;
+      }
+
+      const data =
+        (await response.json()) as PriceHistoryResponse;
+
+      setHistoryData(data);
+    } catch {
+      setHistoryError(
+        "Could not retrieve price history."
+      );
+    } finally {
+      setHistoryLoading(false);
     }
   }
 
@@ -524,24 +583,67 @@ export function AccountScreen() {
                     {product.quantity !== null && (
                       <Text style={styles.muted}>Qty {product.quantity}</Text>
                     )}
-                    <Pressable
-                      accessibilityRole="button"
-                      accessibilityLabel={`Remove ${product.name}`}
-                      disabled={removingId === product.id}
-                      style={[styles.removeBtn, removingId === product.id && styles.primaryBtnDisabled]}
-                      onPress={() => void onRemove(product.id)}
-                    >
-                      <Text style={styles.removeBtnText}>
-                        {removingId === product.id ? "Removing..." : "Remove"}
-                      </Text>
-                    </Pressable>
+                    <View style={styles.cardActions}>
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={`View price history for ${product.name}`}
+                        disabled={
+                          !product.barcode ||
+                          !product.external_store_id ||
+                          historyLoading
+                        }
+                        onPress={() => void onHistory(product)}
+                        style={[
+                          styles.actionBtn,
+                          styles.historyBtn,
+                          (!product.barcode ||
+                            !product.external_store_id ||
+                            historyLoading) &&
+                            styles.primaryBtnDisabled,
+                        ]}
+                      >
+                        <Text style={styles.historyBtnText}>
+                          History
+                        </Text>
+                      </Pressable>
+
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={`Remove ${product.name}`}
+                        disabled={removingId === product.id}
+                        onPress={() => void onRemove(product.id)}
+                        style={[
+                          styles.actionBtn,
+                          styles.removeBtn,
+                          removingId === product.id &&
+                            styles.primaryBtnDisabled,
+                        ]}
+                      >
+                        <Text style={styles.removeBtnText}>
+                          {removingId === product.id
+                            ? "Removing..."
+                            : "Remove"}
+                        </Text>
+                      </Pressable>
+                    </View>
                   </View>
                 ))
               )}
             </View>
           </>
         )}
-      </ScrollView>
+        </ScrollView>
+
+      <PriceHistoryModal
+        visible={activeHistory !== null}
+        productName={activeHistory?.name ?? ""}
+        data={historyData}
+        loading={historyLoading}
+        error={historyError}
+        onClose={() => {
+          setActiveHistory(null);
+        }}
+      />
     </View>
   );
 }
@@ -623,14 +725,37 @@ const styles = StyleSheet.create({
   },
   cardName: { flex: 1, fontWeight: "700", color: colors.text, fontSize: 16 },
   cardPrice: { fontWeight: "800", color: colors.greenDark, fontSize: 16 },
-  removeBtn: {
-    alignSelf: "flex-start",
-    marginTop: 8,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+  cardActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 10,
   },
-  removeBtnText: { color: colors.danger, fontWeight: "700", fontSize: 13 },
+  actionBtn: {
+    minWidth: 100,
+    height: 36,
+    borderWidth: 1,
+    borderRadius: 10,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 12,
+  },
+  historyBtn: {
+    borderColor: colors.greenDark,
+  },
+  historyBtnText: {
+    color: colors.greenDark,
+    fontWeight: "700",
+    fontSize: 13,
+  },
+  removeBtn: {
+    borderColor: colors.border,
+    marginTop: 0,
+    alignSelf: "auto",
+  },
+  removeBtnText: {
+    color: colors.danger,
+    fontWeight: "700",
+    fontSize: 13,
+  },
 });

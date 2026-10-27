@@ -43,6 +43,54 @@ type Props = {
   onOpenSettings: () => void;
 };
 
+
+function getSessionToken(): string | null {
+  const storage = globalThis as typeof globalThis & {
+    "grocerywatch-session"?: string;
+    localStorage?: {
+      getItem: (key: string) => string | null;
+    };
+  };
+
+  let raw: string | null | undefined;
+
+  try {
+    raw =
+      storage["grocerywatch-session"] ??
+      storage.localStorage?.getItem("grocerywatch-session");
+  } catch {
+    raw = storage["grocerywatch-session"];
+  }
+
+  if (!raw) return null;
+
+  try {
+    const session = JSON.parse(raw) as {
+      token?: unknown;
+      expires_at?: unknown;
+    };
+
+    if (
+      typeof session.token !== "string" ||
+      !session.token
+    ) {
+      return null;
+    }
+
+    if (
+      typeof session.expires_at === "string" &&
+      new Date(session.expires_at).getTime() <= Date.now()
+    ) {
+      return null;
+    }
+
+    return session.token;
+  } catch {
+    return null;
+  }
+}
+
+
 async function readError(res: Response) {
   try {
     const data = (await res.json()) as { error?: unknown };
@@ -299,33 +347,98 @@ export function SearchScreen({ onOpenSettings }: Props) {
     return quote.price
   }
 
+  
   async function onAdd(product: CatalogProduct) {
     const key = productKey(product);
-    const quote = product.barcode ? prices[product.barcode] : undefined;
+
+    const quote = product.barcode
+      ? prices[product.barcode]
+      : undefined;
+
     const price = listPrice(quote);
-    const store = stores.find((item) => item.locationId === selectedStoreId);
-    if (!API_URL || price === null || !store || addingKey || addedKeys[key]) return;
+
+    if (
+      !API_URL ||
+      price === null ||
+      !selectedStoreId ||
+      addingKey ||
+      addedKeys[key]
+    ) {
+      return;
+    }
+
+    const token = getSessionToken();
+
+    if (!token) {
+      setAddError(
+        "You must sign in to add products to your list."
+      );
+      return;
+    }
+
+    const store = stores.find(
+      (item) => item.locationId === selectedStoreId
+    );
+
+    const location =
+      selectedStoreId === DEMO_STORE_ID
+        ? "GroceryWatch DEMO Store"
+        : store
+          ? store.address
+            ? `${store.name}, ${store.address}`
+            : store.name
+          : null;
+
+    if (!location) {
+      setAddError("Please select a valid store.");
+      return;
+    }
 
     setAddingKey(key);
     setAddError("");
-    const location = store.address ? `${store.name}, ${store.address}` : store.name;
+
     try {
-      const res = await fetch(`${API_URL}/products`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: product.name, price, location }),
-      });
-      if (!res.ok) {
-        setAddError(await readError(res));
+      const response = await fetch(
+        `${API_URL}/products`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            name: product.name,
+            price,
+            location,
+            barcode: product.barcode,
+            externalStoreId: selectedStoreId,
+          }),
+        }
+      );
+
+      if (response.status === 401) {
+        setAddError(
+          "Your session has expired. Please sign in again."
+        );
         return;
       }
-      setAddedKeys((current) => ({ ...current, [key]: true }));
+
+      if (!response.ok) {
+        setAddError(await readError(response));
+        return;
+      }
+
+      setAddedKeys((current) => ({
+        ...current,
+        [key]: true,
+      }));
     } catch {
-      setAddError("API unreachable");
+      setAddError("Could not connect to the server.");
     } finally {
       setAddingKey(null);
     }
   }
+
 
   async function onHistory(product: CatalogProduct) {
     if(!API_URL || !selectedStoreId || !product.barcode || historyLoading) { return; }
