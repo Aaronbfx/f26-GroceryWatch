@@ -594,6 +594,7 @@ export function AccountScreen() {
                         }
                         onPress={() => void onHistory(product)}
                         style={[
+                          styles.actionBtn,
                           styles.historyBtn,
                           (!product.barcode ||
                             !product.external_store_id ||
@@ -610,12 +611,13 @@ export function AccountScreen() {
                         accessibilityRole="button"
                         accessibilityLabel={`Remove ${product.name}`}
                         disabled={removingId === product.id}
+                        onPress={() => void onRemove(product.id)}
                         style={[
+                          styles.actionBtn,
                           styles.removeBtn,
                           removingId === product.id &&
                             styles.primaryBtnDisabled,
                         ]}
-                        onPress={() => void onRemove(product.id)}
                       >
                         <Text style={styles.removeBtnText}>
                           {removingId === product.id
@@ -723,31 +725,36 @@ const styles = StyleSheet.create({
   },
   cardName: { flex: 1, fontWeight: "700", color: colors.text, fontSize: 16 },
   cardPrice: { fontWeight: "800", color: colors.greenDark, fontSize: 16 },
-  removeBtn: {
-    alignSelf: "flex-start",
-    marginTop: 8,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  removeBtnText: { color: colors.danger, fontWeight: "700", fontSize: 13 },
   cardActions: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    marginTop: 8,
+    marginTop: 10,
+  },
+  actionBtn: {
+    minWidth: 100,
+    height: 36,
+    borderWidth: 1,
+    borderRadius: 10,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 12,
   },
   historyBtn: {
-    borderWidth: 1,
     borderColor: colors.greenDark,
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
   },
   historyBtnText: {
     color: colors.greenDark,
+    fontWeight: "700",
+    fontSize: 13,
+  },
+  removeBtn: {
+    borderColor: colors.border,
+    marginTop: 0,
+    alignSelf: "auto",
+  },
+  removeBtnText: {
+    color: colors.danger,
     fontWeight: "700",
     fontSize: 13,
   },

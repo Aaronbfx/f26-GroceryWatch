@@ -142,7 +142,7 @@ function parseProductBody(body: unknown): string | ProductInput {
   }
 
   if (barcode !== null && !/^\d{8,14}$/.test(barcode)) {
-    return "Invalid product barcode.";
+    return "Invalid barcode.";
   }
 
   if (
@@ -682,16 +682,7 @@ app.post("/products", async (req, reply) => {
           external_store_id
       )
       VALUES ($1, $2, $3, $4, $5, $6, $7)
-      RETURNING
-          id,
-          user_id,
-          name,
-          price,
-          location,
-          quantity,
-          barcode,
-          external_store_id,
-          created_at`,
+      RETURNING *`,
       [
         session.userId,
         parsed.name,
