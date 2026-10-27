@@ -43,6 +43,54 @@ type Props = {
   onOpenSettings: () => void;
 };
 
+
+function getSessionToken(): string | null {
+  const storage = globalThis as typeof globalThis & {
+    "grocerywatch-session"?: string;
+    localStorage?: {
+      getItem: (key: string) => string | null;
+    };
+  };
+
+  let raw: string | null | undefined;
+
+  try {
+    raw =
+      storage["grocerywatch-session"] ??
+      storage.localStorage?.getItem("grocerywatch-session");
+  } catch {
+    raw = storage["grocerywatch-session"];
+  }
+
+  if (!raw) return null;
+
+  try {
+    const session = JSON.parse(raw) as {
+      token?: unknown;
+      expires_at?: unknown;
+    };
+
+    if (
+      typeof session.token !== "string" ||
+      !session.token
+    ) {
+      return null;
+    }
+
+    if (
+      typeof session.expires_at === "string" &&
+      new Date(session.expires_at).getTime() <= Date.now()
+    ) {
+      return null;
+    }
+
+    return session.token;
+  } catch {
+    return null;
+  }
+}
+
+
 async function readError(res: Response) {
   try {
     const data = (await res.json()) as { error?: unknown };
